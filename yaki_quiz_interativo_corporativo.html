@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yaki - Quiz Interativo Corporativo</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Expor Firebase globalmente para uso no app
+        window.firebaseModules = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc };
+    </script>
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .yaki-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); }
+        .answer-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+        .answer-btn:hover { transform: translateY(-4px); filter: brightness(1.08); box-shadow: 0 12px 20px -5px rgba(0,0,0,0.25); }
+        .answer-btn:active { transform: translateY(1px); }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+        .animate-float { animation: float 3s ease-in-out infinite; }
+        @keyframes fall {
+            0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(105vh) rotate(720deg); opacity: 0; }
+        }
+        .confetti {
+            position: fixed;
+            top: -20px;
+            width: 12px;
+            height: 12px;
+            border-radius: 4px;
+            animation: fall 3.5s linear infinite;
+            z-index: 999;
+        }
+        @keyframes pulseGlow {
+            0%, 100% { transform: scale(1); filter: drop-shadow(0 0 15px rgba(176, 209, 75, 0.4)); }
+            50% { transform: scale(1.03); filter: drop-shadow(0 0 25px rgba(244, 121, 32, 0.7)); }
+        }
+        .animate-podium-glow { animation: pulseGlow 3s infinite ease-in-out; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-[#08484c] via-[#063538] to-[#042426] text-slate-800 min-h-screen flex flex-col antialiased selection:bg-[#00995d] selection:text-white">
+
+    <!-- BARRA DE NAVEGAÇÃO PRINCIPAL / SELETOR DE MODO -->
+    <header class="bg-[#08484c]/90 backdrop-blur-md border-b border-white/10 sticky top-0 z-50 px-6 py-4 flex flex-wrap justify-between items-center shadow-lg">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#00995d] to-[#b0d14b] flex items-center justify-center shadow-md text-white text-xl font-black">Y</div>
+            <div>
+                <h1 class="font-extrabold text-xl tracking-tight text-[#ffeabf] flex items-center gap-2">
+                    Yaki <span class="text-[10px] bg-[#00995d]/30 text-[#b0d14b] px-2 py-0.5 rounded-full border border-[#b0d14b]/30">Corporativo</span>
+                </h1>
+                <p class="text-xs text-[#ceebe6]/80 font-medium">Plataforma Interativa de Engajamento</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-2 mt-3 sm:mt-0 bg-black/20 p-1.5 rounded-2xl border border-white/10">
+            <button onclick="switchRole('host')" id="navHostBtn" class="px-4 py-2 rounded-xl font-bold text-xs bg-[#00995d] text-white shadow-md transition flex items-center gap-1.5">
+                🖥️ Apresentador
+            </button>
+            <button onclick="switchRole('player')" id="navPlayerBtn" class="px-4 py-2 rounded-xl font-bold text-xs text-[#ceebe6] hover:text-white transition flex items-center gap-1.5">
+                📱 Jogador
+            </button>
+            <button onclick="switchRole('sim')" id="navSimBtn" class="px-4 py-2 rounded-xl font-bold text-xs text-[#ceebe6] hover:text-white transition flex items-center gap-1.5">
+                🤖 Simular Bots
+            </button>
+            <button onclick="resetEntireGame()" class="px-3 py-2 rounded-xl font-medium text-xs text-red-300 hover:bg-red-500/20 transition" title="Reiniciar Jogo">
+                🔄 Reset
+            </button>
+        </div>
+    </header>
+
+    <!-- CONTEÚDO DINÂMICO -->
+    <main class="flex-1 flex flex-col p-4 sm:p-8 max-w-7xl mx-auto w-full justify-center">
+
+        <!-- ==================== MODO APRESENTADOR (HOST) ==================== -->
+        <section id="roleHost" class="flex-1 flex flex-col justify-center">
+            <div id="hostContent" class="flex-1 flex flex-col justify-center"></div>
+        </section>
+
+        <!-- ==================== MODO JOGADOR (PLAYER) ==================== -->
+        <section id="rolePlayer" class="flex-1 flex flex-col justify-center hidden">
+            <div id="playerContent" class="flex-1 flex flex-col justify-center"></div>
+        </section>
+
+        <!-- ==================== MODO SIMULAÇÃO (BOTS) ==================== -->
+        <section id="roleSim" class="flex-1 flex flex-col justify-center hidden">
+            <div class="yaki-card rounded-3xl p-8 shadow-2xl border border-white/20 max-w-2xl mx-auto w-full">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="text-3xl">🤖</span>
+                    <div>
+                        <h2 class="text-2xl font-black text-[#08484c]">Painel de Simulação Yaki</h2>
+                        <p class="text-xs text-slate-500 font-medium">Insira participantes automáticos para testar a dinâmica em tempo real (sem limite de jogadores).</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                    <button onclick="addBotPlayer()" class="bg-[#00995d] hover:bg-[#007a4b] text-white font-extrabold py-3.5 px-4 rounded-2xl shadow-lg transition transform hover:-translate-y-0.5 text-xs">
+                        ➕ Adicionar 1 Bot
+                    </button>
+                    <button onclick="addBatchBots(5)" class="bg-[#b0d14b] hover:bg-[#9bc13a] text-[#08484c] font-extrabold py-3.5 px-4 rounded-2xl shadow-lg transition transform hover:-translate-y-0.5 text-xs">
+                        ➕ Adicionar 5 Bots
+                    </button>
+                    <button onclick="addBatchBots(10)" class="bg-[#f47920] hover:bg-[#d66516] text-white font-extrabold py-3.5 px-4 rounded-2xl shadow-lg transition transform hover:-translate-y-0.5 text-xs">
+                        ➕ Adicionar 10 Bots
+                    </button>
+                </div>
+                <div class="bg-slate-100 p-5 rounded-2xl border border-slate-200 mb-6">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="font-bold text-xs uppercase tracking-wider text-[#08484c]">Jogadores Conectados (<span id="simPlayerCount">0</span>):</h3>
+                        <button onclick="clearAllPlayers()" class="text-xs text-red-600 hover:underline font-bold">Remover Todos</button>
+                    </div>
+                    <div id="simPlayerList" class="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-2 bg-white rounded-xl border border-slate-200">
+                        <!-- Lista simulada -->
+                    </div>
+                </div>
+                <div class="flex justify-end">
+                    <button onclick="switchRole('host')" class="bg-[#08484c] text-white font-extrabold py-3 px-6 rounded-2xl shadow-lg hover:bg-opacity-90 text-sm">
+                        Voltar ao Apresentador
+                    </button>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- RODAPÉ -->
+    <footer class="py-4 px-6 text-center text-xs text-[#ceebe6]/70 border-t border-white/10 mt-auto font-medium">
+        Yaki &copy; 2026 - Experiência Interativa Corporativa | Paleta Oficial Aplicada
+    </footer>
+
+    <!-- SCRIPT DE FUNCIONAMENTO E SINCRONIZAÇÃO EM TEMPO REAL -->
+    <script>
+        const defaultQuestions = [
+            {
+                question: "O que significa a sigla PDCA no contexto de Gestão da Qualidade e Melhoria Contínua?",
+                options: [
+                    "Planejar, Fazer, Checar e Agir (Plan, Do, Check, Act)",
+                    "Processar, Documentar, Controlar e Analisar",
+                    "Padrão de Diretrizes Corporativas Avançadas",
+                    "Prevenir, Desenvolver, Capacitar e Avaliar"
+                ],
+                correct: 0,
+                time: 60
+            },
+            {
+                question: "Na norma ISO 9001, qual é o principal foco da Gestão da Qualidade?",
+                options: [
+                    "Redução de custos operacionais com fornecedores",
+                    "Aumento exclusivo do faturamento trimestral",
+                    "Foco no Cliente e na satisfação de suas necessidades",
+                    "Eliminação total de auditorias externas"
+                ],
+                correct: 2,
+                time: 60
+            },
+            {
+                question: "A ferramenta de qualidade 5W2H é amplamente utilizada para quê?",
+                options: [
+                    "Medir o índice de satisfação do colaborador no refeitório",
+                    "Elaborar planos de ação estruturados respondendo a 7 perguntas-chave",
+                    "Controlar o fluxo de caixa de projetos de longo prazo",
+                    "Mapear a hierarquia de cargos e salários da empresa"
+                ],
+                correct: 1,
+                time: 60
+            },
+            {
+                question: "O que representa o conceito de 'Compliance' em uma organização moderna?",
+                options: [
+                    "Cumprir rigorosamente leis, regulamentos internos e normas éticas",
+                    "Fazer reuniões semanais sem pauta definida",
+                    "Cumprir metas de vendas acima da média do mercado",
+                    "Aumentar o número de relatórios impressos por setor"
+                ],
+                correct: 0,
+                time: 60
+            },
+            {
+                question: "No sistema de Gestão Lean, o que significa a filosofia 'Kaizen'?",
+                options: [
+                    "Reduzir o quadro de funcionários por automação",
+                    "Melhoria contínua diária envolvendo todos os colaboradores",
+                    "Auditoria surpresa de processos críticos",
+                    "Paralisação temporária da produção para manutenção"
+                ],
+                correct: 1,
+                time: 60
+            },
+            {
+                question: "Qual o principal objetivo de realizar uma Análise de Causa Raiz (ex: 5 Porquês)?",
+                options: [
+                    "Identificar quem cometeu o erro para aplicar advertência",
+                    "Evitar que o mesmo problema volte a acontecer identificando sua origem",
+                    "Acelerar o atendimento ao cliente em suporte técnico",
+                    "Reduzir o tempo de reuniões de diretoria"
+                ],
+                correct: 1,
+                time: 60
+            },
+            {
+                question: "O que caracteriza uma 'Não Conformidade' em auditorias de processos?",
+                options: [
+                    "Uma sugestão de melhoria opcional dada pelo auditor",
+                    "O descumprimento de um requisito especificado em norma ou procedimento",
+                    "Um atraso inferior a 5 minutos em reuniões agendadas",
+                    "A recusa de um cliente em aceitar um novo produto"
+                ],
+                correct: 1,
+                time: 60
+            },
+            {
+                question: "Qual ferramenta estatística de qualidade é usada para priorizar problemas (Regra 80/20)?",
+                options: [
+                    "Diagrama de Ishikawa (Espinha de Peixe)",
+                    "Gráfico de Pareto",
+                    "Histograma de frequências",
+                    "Fluxograma de processos"
+                ],
+                correct: 1,
+                time: 60
+            },
+            {
+                question: "No método 5S, o que significa o senso 'Seiton' (Ordenação)?",
+                options: [
+                    "Descartar tudo o que não é mais necessário no ambiente de trabalho",
+                    "Organizar e colocar cada item em seu devido lugar para fácil acesso",
+                    "Limpar e inspecionar os equipamentos diariamente",
+                    "Padronizar os uniformes e crachás da equipe"
+                ],
+                correct: 1,
+                time: 60
+            },
+            {
+                question: "Por que a Gestão de Riscos (ISO 31000) é crucial para os processos corporativos?",
+                options: [
+                    "Para eliminar totalmente qualquer possibilidade de erro humano",
+                    "Para identificar incertezas, mitigar ameaças e aproveitar oportunidades",
+                    "Para transferir toda a responsabilidade jurídica para o setor de TI",
+                    "Para cumprir burocracias sem impacto prático nos resultados"
+                ],
+                correct: 1,
+                time: 60
+            }
+        ];
+
+        const animalIcons = ['🐼', '🦊', '🐰', '🦁', '🐯', '🐨', '🐸', '🐧', '🐶', '🐱', '🐵', '🦄', '🐷', '🐮', '🐹', '🐻'];
+
+        const answerColors = [
+            { bg: 'bg-[#00995d]', hover: 'hover:bg-[#007a4b]', text: 'text-white', border: 'border-[#007a4b]', name: 'Verde' },
+            { bg: 'bg-[#b0d14b]', hover: 'hover:bg-[#9bc13a]', text: 'text-[#08484c]', border: 'border-[#9bc13a]', name: 'Verde Lima' },
+            { bg: 'bg-[#08484c]', hover: 'hover:bg-[#063538]', text: 'text-white', border: 'border-[#063538]', name: 'Verde Petróleo' },
+            { bg: 'bg-[#f47920]', hover: 'hover:bg-[#d66516]', text: 'text-white', border: 'border-[#d66516]', name: 'Laranja' }
+        ];
+
+        const CHANNEL_NAME = 'yaki_channel_v4';
+        const bc = new BroadcastChannel(CHANNEL_NAME);
+
+        let gameState = {
+            role: 'host',
+            status: 'lobby',
+            currentQuestionIndex: 0,
+            pin: '842916',
+            adminPin: '7777',
+            isAdminAuthenticated: false,
+            questions: JSON.parse(localStorage.getItem('yaki_questions_v5')) || defaultQuestions,
+            players: JSON.parse(localStorage.getItem('yaki_players_v4')) || [],
+            timer: 60,
+            timerInterval: null,
+            startTime: null
+        };
+
+        // Integração Firebase em tempo real
+        let db, auth, gameDocRef;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'yaki-corporativo-default';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : undefined;
+
+        async function initFirebase() {
+            if (!firebaseConfig || !window.firebaseModules) return;
+            const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, getFirestore, doc, onSnapshot } = window.firebaseModules;
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                gameDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'yaki_game_session');
+
+                // Escutar atualizações do Firestore em tempo real
+                onSnapshot(gameDocRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const cloudState = docSnap.data();
+                        // Sincronizar estado remoto mantendo o timer local se Host
+                        if (gameState.role !== 'host' || !gameState.isAdminAuthenticated) {
+                            gameState.status = cloudState.status;
+                            gameState.currentQuestionIndex = cloudState.currentQuestionIndex;
+                            gameState.players = cloudState.players || [];
+                            gameState.timer = cloudState.timer;
+                            gameState.questions = cloudState.questions || gameState.questions;
+                            renderApp();
+                        }
+                    } else {
+                        // Criar documento inicial se não existir
+                        setDoc(gameDocRef, gameState).catch(() => {});
+                    }
+                }, (error) => {
+                    console.debug('Firebase sync notice:', error);
+                });
+            } catch (e) {
+                console.debug('Firebase init fallback to local:', e);
+            }
+        }
+
+        function saveState() {
+            localStorage.setItem('yaki_questions_v5', JSON.stringify(gameState.questions));
+            localStorage.setItem('yaki_players_v4', JSON.stringify(gameState.players));
+            if (db && gameDocRef && auth && auth.currentUser) {
+                setDoc(gameDocRef, gameState).catch(() => {});
+            }
+        }
+
+        function switchRole(role) {
+            gameState.role = role;
+            document.getElementById('roleHost').classList.add('hidden');
+            document.getElementById('rolePlayer').classList.add('hidden');
+            document.getElementById('roleSim').classList.add('hidden');
+
+            document.getElementById('navHostBtn').className = "px-4 py-2 rounded-xl font-bold text-xs text-[#ceebe6] hover:text-white transition flex items-center gap-1.5";
+            document.getElementById('navPlayerBtn').className = "px-4 py-2 rounded-xl font-bold text-xs text-[#ceebe6] hover:text-white transition flex items-center gap-1.5";
+            document.getElementById('navSimBtn').className = "px-4 py-2 rounded-xl font-bold text-xs text-[#ceebe6] hover:text-white transition flex items-center gap-1.5";
+
+            if (role === 'host') {
+                document.getElementById('roleHost').classList.remove('hidden');
+                document.getElementById('navHostBtn').className = "px-4 py-2 rounded-xl font-bold text-xs bg-[#00995d] text-white shadow-md transition flex items-center gap-1.5";
+            } else if (role === 'player') {
+                document.getElementById('rolePlayer').classList.remove('hidden');
+                document.getElementById('navPlayerBtn').className = "px-4 py-2 rounded-xl font-bold text-xs bg-[#00995d] text-white shadow-md transition flex items-center gap-1.5";
+            } else if (role === 'sim') {
+                document.getElementById('roleSim').classList.remove('hidden');
+                document.getElementById('navSimBtn').className = "px-4 py-2 rounded-xl font-bold text-xs bg-[#f47920] text-white shadow-md transition flex items-center gap-1.5";
+            }
+            renderApp();
+        }
+
+        function authenticateAdmin(e) {
+            e.preventDefault();
+            const inputPin = document.getElementById('adminPinInput').value.trim();
+            if (inputPin === gameState.adminPin) {
+                gameState.isAdminAuthenticated = true;
+                saveState();
+                renderApp();
+            } else {
+                alert('PIN de Administrador incorreto. (PIN padrão: 7777)');
+            }
+        }
+
+        function renderApp() {
+            if (gameState.role === 'host') renderHost();
+            else if (gameState.role === 'player') renderPlayer();
+            else if (gameState.role === 'sim') renderSim();
+        }
+
+        // ==================== HOST ====================
+        function renderHost() {
+            const container = document.getElementById('hostContent');
+            if (!container) return;
+
+            if (!gameState.isAdminAuthenticated) {
+                container.innerHTML = `
+                    <div class="yaki-card rounded-3xl p-8 shadow-2xl border border-white/20 max-w-md mx-auto w-full text-center">
+                        <span class="text-5xl inline-block mb-4">🔐</span>
+                        <h2 class="text-2xl font-black text-[#08484c]">Acesso Restrito ao Apresentador</h2>
+                        <p class="text-xs text-slate-500 font-medium mt-1 mb-6">Insira o PIN de Administrador para gerenciar o quiz e as perguntas.</p>
+                        <form onsubmit="authenticateAdmin(event)" class="space-y-4">
+                            <input type="password" id="adminPinInput" required placeholder="PIN do Admin (Ex: 7777)" class="w-full p-4 border border-slate-200 rounded-2xl font-mono text-center text-lg tracking-widest bg-slate-50 focus:ring-2 focus:ring-[#00995d]" />
+                            <button type="submit" class="w-full bg-[#00995d] hover:bg-[#007a4b] text-white font-extrabold py-4 rounded-2xl shadow-xl text-sm transition">
+                                Acessar Painel de Controle
+                            </button>
+                        </form>
+                        <p class="text-[10px] text-slate-400 mt-4 font-mono">PIN padrão para teste: 7777</p>
+                    </div>
+                `;
+                return;
+            }
+
+            if (gameState.status === 'lobby') {
+                const playerUrl = window.location.href.split('#')[0];
+                const qrCodeApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(playerUrl)}`;
+
+                container.innerHTML = `
+                    <div class="yaki-card rounded-3xl p-8 shadow-2xl border border-white/20 max-w-5xl mx-auto w-full">
+                        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center border-b border-slate-200 pb-6 mb-6 gap-6">
+                            <div>
+                                <div class="flex items-center gap-3">
+                                    <span class="text-4xl animate-float">🎯</span>
+                                    <div>
+                                        <h2 class="text-3xl font-black text-[#08484c]">Sala de Espera (Lobby) - Apresentador</h2>
+                                        <p class="text-slate-500 text-xs font-medium mt-1">Os jogadores escaneiam o QR Code para entrar e aguardam o início.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                                <div class="text-center bg-white p-2.5 rounded-xl shadow-sm border border-slate-200">
+                                    <img src="${qrCodeApiUrl}" alt="QR Code" class="w-24 h-24 mx-auto mb-1 rounded" />
+                                    <span class="text-[9px] font-extrabold text-[#08484c] block tracking-wider">APONTE A CÂMERA</span>
+                                </div>
+                                <div class="border-l border-slate-300 pl-4">
+                                    <p class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">PIN DA SALA</p>
+                                    <p class="text-3xl font-mono font-black text-[#08484c] tracking-widest">${gameState.pin}</p>
+                                    <p class="text-xs text-[#00995d] font-extrabold mt-2 flex items-center gap-1">
+                                        <span class="w-2 h-2 rounded-full bg-[#00995d] animate-ping"></span> 
+                                        ${gameState.players.length} / 40 Conectados
+                                    </p>
+                                </div>
+                                <button onclick="startQuiz()" class="bg-[#00995d] hover:bg-[#007a4b] text-white font-extrabold px-8 py-4 rounded-2xl shadow-xl transition transform hover:scale-105 text-sm">
+                                    🚀 Iniciar Jogo
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="mb-8">
+                            <div class="flex justify-between items-center mb-3">
+                                <h3 class="font-extrabold text-xs uppercase tracking-wider text-slate-500">Participantes na Sala:</h3>
+                                <button onclick="clearAllPlayers()" class="text-xs text-red-600 hover:underline font-bold">Limpar Todos</button>
+                            </div>
+                            <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3 max-h-56 overflow-y-auto p-3 bg-slate-100 rounded-2xl border border-slate-200">
+                                ${gameState.players.length === 0 ? '<p class="col-span-full text-center text-slate-400 py-8 text-xs font-semibold italic">Aguardando participantes entrarem pelo celular...</p>' : 
+                                  gameState.players.map(p => `
+                                    <div class="bg-white p-3 rounded-xl shadow-sm flex items-center space-x-3 border border-slate-200">
+                                        <span class="text-2xl">${p.icon}</span>
+                                        <div class="overflow-hidden">
+                                            <p class="font-bold text-xs truncate text-[#08484c]">${p.name}</p>
+                                            <p class="text-[10px] text-slate-400 truncate font-medium">${p.surname}</p>
+                                        </div>
+                                    </div>
+                                  `).join('')}
+                            </div>
+                        </div>
+
+                        <div class="border-t border-slate-200 pt-4">
+                            <details class="bg-slate-50 p-4 rounded-2xl border border-slate-200" open>
+                                <summary class="font-black text-xs uppercase tracking-wider text-[#08484c] cursor-pointer flex justify-between items-center">
+                                    <span>⚙️ Painel de Edição e Criação de Perguntas (${gameState.questions.length} questões)</span>
+                                    <span class="text-[11px] text-slate-500 font-normal">Expandido / Recolher</span>
+                                </summary>
+                                <div class="mt-4 space-y-4 max-h-96 overflow-y-auto pr-2">
+                                    <div class="flex flex-wrap justify-between items-center gap-2 bg-white p-3 rounded-xl border border-slate-200">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-xs font-bold text-slate-700">Adicionar Nova Questão:</span>
+                                            <select id="newQuestionType" class="text-xs p-1.5 border rounded-lg font-bold">
+                                                <option value="multiple">Múltipla Escolha (4 opções)</option>
+                                                <option value="tf">Verdadeiro ou Falso</option>
+                                            </select>
+                                        </div>
+                                        <button onclick="addNewQuestion()" class="bg-[#00995d] hover:bg-[#007a4b] text-white text-xs font-extrabold px-4 py-2 rounded-xl shadow-md transition">
+                                            ➕ Adicionar Questão
+                                        </button>
+                                    </div>
+
+                                    ${gameState.questions.map((q, idx) => `
+                                        <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+                                            <div class="flex justify-between items-center">
+                                                <span class="font-extrabold text-[10px] uppercase bg-[#08484c] text-[#ffeabf] px-2.5 py-0.5 rounded-full">
+                                                    Questão ${idx + 1} (${q.type === 'tf' ? 'Verdadeiro/Falso' : 'Múltipla Escolha'})
+                                                </span>
+                                                <div class="flex items-center space-x-3">
+                                                    <div class="flex items-center space-x-1">
+                                                        <span class="text-[10px] font-bold text-slate-500">Tempo(s):</span>
+                                                        <input type="number" min="10" max="300" value="${q.time || 60}" onchange="updateQuestionTime(${idx}, this.value)" class="w-16 p-1 text-xs border rounded-lg font-mono text-center" />
+                                                    </div>
+                                                    <button onclick="removeQuestion(${idx})" class="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1 bg-red-50 rounded-lg" title="Excluir questão">🗑️</button>
+                                                </div>
+                                            </div>
+                                            <input type="text" value="${q.question}" onchange="updateQuestionText(${idx}, this.value)" class="w-full font-bold text-xs p-2.5 border rounded-xl" />
+                                            
+                                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                ${q.options.map((opt, oIdx) => `
+                                                    <div class="flex items-center space-x-2">
+                                                        <span class="w-3 h-3 rounded-full flex-shrink-0 ${answerColors[oIdx] ? answerColors[oIdx].bg : 'bg-slate-400'}"></span>
+                                                        <input type="text" value="${opt}" ${q.type === 'tf' ? 'readonly' : ''} onchange="updateOptionText(${idx}, ${oIdx}, this.value)" class="w-full text-xs p-2 border rounded-xl ${q.type === 'tf' ? 'bg-slate-100 text-slate-600' : ''}" />
+                                                        <input type="radio" name="correct_${idx}" ${q.correct === oIdx ? 'checked' : ''} onchange="setCorrectOption(${idx}, ${oIdx})" title="Marcar correta" />
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+                `;
+            } else if (gameState.status === 'question' || gameState.status === 'result') {
+                const q = gameState.questions[gameState.currentQuestionIndex];
+                const total = gameState.questions.length;
+                const answeredCount = gameState.players.filter(p => p.answers && p.answers[gameState.currentQuestionIndex] !== undefined).length;
+
+                container.innerHTML = `
+                    <div class="yaki-card rounded-3xl p-8 shadow-2xl border border-white/20 max-w-5xl mx-auto w-full">
+                        <div class="flex justify-between items-center mb-6 border-b border-slate-200 pb-4">
+                            <div>
+                                <span class="bg-[#08484c] text-[#ffeabf] px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider">Questão ${gameState.currentQuestionIndex + 1} de ${total}</span>
+                            </div>
+                            <div class="flex items-center space-x-4">
+                                <div class="text-center bg-slate-100 px-4 py-2 rounded-2xl border border-slate-200">
+                                    <span class="text-[10px] text-slate-400 font-extrabold uppercase block">Tempo</span>
+                                    <span class="text-xl font-black font-mono text-[#08484c]">${gameState.timer}s</span>
+                                </div>
+                                <div class="text-center bg-slate-100 px-4 py-2 rounded-2xl border border-slate-200">
+                                    <span class="text-[10px] text-slate-400 font-extrabold uppercase block">Respostas</span>
+                                    <span class="text-xl font-black text-[#00995d]">${answeredCount} / ${gameState.players.length}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-8 text-center bg-slate-50 p-6 rounded-2xl border border-slate-200">
+                            <h2 class="text-2xl sm:text-3xl font-black text-[#08484c] leading-snug">${q.question}</h2>
+                        </div>
+
+                        <div class="grid grid-cols-1 ${q.options.length === 2 ? 'sm:grid-cols-2 max-w-2xl mx-auto' : 'sm:grid-cols-2'} gap-4 mb-8">
+                            ${q.options.map((opt, idx) => {
+                                const col = answerColors[idx] || { bg: 'bg-[#08484c]', text: 'text-white' };
+                                const isCorrect = gameState.status === 'result' && idx === q.correct;
+                                const isDimmed = gameState.status === 'result' && idx !== q.correct;
+                                return `
+                                    <div class="${col.bg} ${col.text} p-6 rounded-2xl shadow-lg flex items-center justify-between transition transform ${isCorrect ? 'ring-4 ring-yellow-400 scale-105' : ''} ${isDimmed ? 'opacity-40' : ''}">
+                                        <div class="flex items-center space-x-4">
+                                            <span class="w-8 h-8 rounded-xl bg-black/20 flex items-center justify-center font-black text-sm">${idx + 1}</span>
+                                            <span class="font-bold text-sm sm:text-base">${opt}</span>
+                                        </div>
+                                        ${isCorrect ? '<span class="text-2xl">⭐</span>' : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+
+                        <div class="flex justify-between items-center pt-4 border-t border-slate-200">
+                            <div class="flex gap-2">
+                                <button onclick="skipQuestion()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-5 py-3 rounded-xl text-xs transition">
+                                    ⏭️ Pular / Avançar
+                                </button>
+                            </div>
+                            <div>
+                                ${gameState.status === 'question' ? `
+                                    <button onclick="revealResult()" class="bg-[#00995d] hover:bg-[#007a4b] text-white font-extrabold px-6 py-3 rounded-xl text-xs shadow-lg transition">
+                                        Revelar Resposta
+                                    </button>
+                                ` : `
+                                    <button onclick="nextStep()" class="bg-[#00995d] hover:bg-[#007a4b] text-white font-extrabold px-6 py-3 rounded-xl text-xs shadow-lg transition">
+                                        Próxima Etapa ➔
+                                    </button>
+                                `}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else if (gameState.status === 'ranking') {
+                const sortedPlayers = [...gameState.players].sort((a, b) => (b.score || 0) - (a.score || 0));
+                container.innerHTML = `
+                    <div class="yaki-card rounded-3xl p-8 shadow-2xl border border-white/20 max-w-3xl mx-auto w-full text-center">
+                        <span class="text-4xl inline-block mb-2">🏆</span>
+                        <h2 class="text-2xl font-black text-[#08484c]">Ranking Parcial</h2>
+                        <p class="text-xs text-slate-500 font-medium mb-6">Classificação atual dos participantes</p>
+
+                        <div class="space-y-2 mb-8 max-h-96 overflow-y-auto p-2">
+                            ${sortedPlayers.map((p, idx) => `
+                                <div class="flex items-center justify-between p-4 rounded-2xl ${idx === 0 ? 'bg-amber-100 border border-amber-300' : idx === 1 ? 'bg-slate-200' : idx === 2 ? 'bg-orange-100' : 'bg-white border border-slate-200'} shadow-sm">
+                                    <div class="flex items-center space-x-3">
+                                        <span class="w-8 h-8 rounded-xl bg-slate-900 text-white font-black flex items-center justify-center text-xs">${idx + 1}º</span>
+                                        <span class="text-2xl">${p.icon}</span>
+                                        <span class="font-extrabold text-sm text-[#08484c]">${p.name} ${p.surname}</span>
+                                    </div>
+                                    <span class="font-black text-sm text-[#00995d] font-mono">${p.score || 0} pts</span>
+                                </div>
+                            `).join('')}
+                        </div>
+
+                        <button onclick="nextStep()" class="bg-[#00995d] hover:bg-[#007a4b] text-white font-extrabold px-8 py-4 rounded-2xl shadow-xl text-sm transition">
+                            Continuar para Próxima Questão ➔
+                        </button>
+                    </div>
+                `;
+            } else if (gameState.status === 'transition_hidden') {
+                container.innerHTML = `
+                    <div class="yaki-card rounded-3xl p-10 shadow-2xl border-2 border-[#f47920]/40 max-w-2xl mx-auto w-full text-center animate-podium-glow bg-gradient-to-br from-white via-[#ffeabf]/30 to-[#d3e6ce]/40">
+                        <div class="w-20 h-20 mx-auto mb-4 bg-gradient-to-tr from-[#f47920] to-[#b0d14b] rounded-2xl flex items-center justify-center text-4xl shadow-lg text-white">
+                            🔒
+                        </div>
+                        <h2 class="text-3xl font-black text-[#08484c] mb-3">Ranking Oculto a partir de Agora!</h2>
+                        <p class="text-sm font-semibold text-slate-700 leading-relaxed mb-8">
+                            A partir desta questão, o ranking não será mais exibido. Mantenha o foco, responda com rapidez e aguarde a surpresa final para descobrir quem levou o grande troféu do treinamento!
+                        </p>
+                        <button onclick="proceedFromTransition()" class="bg-[#00995d] hover:bg-[#007a4b] text-white font-extrabold px-8 py-4 rounded-2xl shadow-xl transition transform hover:scale-105 text-sm uppercase tracking-wider">
+                            Continuar Desafio ➔
+                        </button>
+                    </div>
+                `;
+            } else if (gameState.status === 'podium') {
+                const sortedPlayers = [...gameState.players].sort((a, b) => (b.score || 0) - (a.score || 0));
+                const p1 = sortedPlayers[0];
+                const p2 = sortedPlayers[1];
+                const p3 = sortedPlayers[2];
+
+                container.innerHTML = `
+                    <div class="yaki-card rounded-3xl p-8 shadow-2xl border-4 border-[#00995d]/30 max-w-4xl mx-auto w-full text-center bg-gradient-to-b from-white via-[#d3e6ce]/30 to-[#ffeabf]/20 animate-podium-glow">
+                        <div class="inline-flex items-center gap-2 bg-[#08484c] text-[#ffeabf] px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-md mb-4">
+                            <span>✨ Pódio Oficial Yaki ✨</span>
+                        </div>
+                        <h2 class="text-4xl font-black text-[#08484c] mb-2 tracking-tight">Resultado Final do Treinamento</h2>
+                        <p class="text-xs text-slate-600 font-semibold mb-8">Parabéns a todos os participantes pelo empenho e engajamento!</p>
+
+                        <div class="flex justify-center items-end gap-6 my-6 h-72">
+                            <!-- 2º Lugar -->
+                            <div class="flex flex-col items-center w-1/3">
+                                ${p2 ? `<span class="text-3xl mb-1 animate-float">${p2.icon}</span><p class="font-extrabold text-xs text-[#08484c] truncate w-full">${p2.name}</p><p class="text-[10px] font-mono font-bold text-slate-600">${p2.score} pts</p>` : ''}
+                                <div class="w-full bg-gradient-to-t from-slate-400 to-[#b0d14b] h-40 rounded-t-3xl flex items-center justify-center font-black text-white text-3xl shadow-xl mt-2 border-t-2 border-white/50">2º</div>
+                            </div>
+                            <!-- 1º Lugar -->
+                            <div class="flex flex-col items-center w-1/3">
+                                ${p1 ? `<span class="text-5xl mb-1 animate-bounce">${p1.icon}</span><p class="font-extrabold text-sm text-[#08484c] truncate w-full">${p1.name}</p><p class="text-xs font-mono font-black text-[#00995d]">${p1.score} pts</p>` : ''}
+                                <div class="w-full bg-gradient-to-t from-[#00995d] to-[#b0d14b] h-56 rounded-t-3xl flex items-center justify-center font-black text-white text-4xl shadow-2xl mt-2 border-t-4 border-yellow-300">🥇</div>
+                            </div>
+                            <!-- 3º Lugar -->
+                            <div class="flex flex-col items-center w-1/3">
+                                ${p3 ? `<span class="text-3xl mb-1 animate-float">${p3.icon}</span><p class="font-extrabold text-xs text-[#08484c] truncate w-full">${p3.name}</p><p class="text-[10px] font-mono font-bold text-slate-600">${p3.score} pts</p>` : ''}
+                                <div class="w-full bg-gradient-to-t from-amber-700 to-[#f47920] h-32 rounded-t-3xl flex items-center justify-center font-black text-white text-2xl shadow-xl mt-2 border-t-2 border-white/50">3º</div>
+                            </div>
+                        </div>
+
+                        <div class="space-y-4 pt-6 border-t border-slate-200 mt-6">
+                            <div class="flex flex-wrap justify-center gap-3">
+                                <button onclick="toggleRankingModal()" class="bg-[#08484c] hover:bg-[#063538] text-white font-extrabold px-6 py-3 rounded-2xl text-xs shadow-lg transition transform hover:scale-105">
+                                    📋 Revelar Classificação Completa
+                                </button>
+                                <button onclick="resetEntireGame()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-6 py-3 rounded-2xl text-xs transition">
+                                    🔄 Jogar Novamente
+                                </button>
+                            </div>
+                            <div id="fullRankingBox" class="hidden mt-4 p-4 bg-white/90 rounded-2xl max-h-48 overflow-y-auto border border-slate-200 text-left shadow-inner">
+                                ${sortedPlayers.map((p, idx) => `
+                                    <div class="flex justify-between items-center py-2.5 px-3 rounded-xl mb-1 ${idx === 0 ? 'bg-amber-50 font-bold' : ''} border-b border-slate-100 last:border-none">
+                                        <span class="font-bold text-xs text-[#08484c]">${idx + 1}º - ${p.icon} ${p.name} ${p.surname}</span>
+                                        <span class="font-mono text-xs text-[#00995d] font-black">${p.score || 0} pts</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // ==================== PLAYER ====================
+        function renderPlayer() {
+            const container = document.getElementById('playerContent');
+            if (!container) return;
+
+            let currentPlayerId = localStorage.getItem('yaki_current_player_id_v4');
+            let currentPlayer = gameState.players.find(p => p.id === currentPlayerId);
+
+            if (!currentPlayer || gameState.status === 'lobby') {
+                container.innerHTML = `
+                    <div class="max-w-md mx-auto w-full bg-[#333333] text-white rounded-3xl p-6 shadow-2xl border border-white/10">
+                        <div class="text-center mb-6">
+                            <h2 class="text-3xl font-black tracking-tight text-[#ffeabf]">Yaki!</h2>
+                            <p class="text-xs text-slate-300 mt-1">Insira seus dados para entrar na partida</p>
+                        </div>
+
+                        <form onsubmit="handlePlayerJoin(event)" class="space-y-4">
+                            <div>
+                                <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">Nome:</label>
+                                <input type="text" id="joinName" required placeholder="Ex: Ana" class="w-full p-4 bg-[#444444] text-white placeholder-slate-400 border border-transparent focus:border-[#00995d] rounded-2xl font-medium outline-none text-sm" />
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">Sobrenome:</label>
+                                <input type="text" id="joinSurname" required placeholder="Ex: Souza" class="w-full p-4 bg-[#444444] text-white placeholder-slate-400 border border-transparent focus:border-[#00995d] rounded-2xl font-medium outline-none text-sm" />
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">Escolha seu Animalzinho:</label>
+                                <div id="iconSelector" class="grid grid-cols-4 gap-2.5 p-3 bg-[#222222] rounded-2xl max-h-40 overflow-y-auto border border-white/10">
+                                    ${animalIcons.map((icon, idx) => `
+                                        <label class="cursor-pointer flex items-center justify-center p-3 bg-[#333333] hover:bg-[#00995d]/30 rounded-xl transition border border-transparent hover:border-[#00995d]">
+                                            <input type="radio" name="playerIcon" value="${icon}" ${idx === 0 ? 'checked' : ''} class="sr-only peer" />
+                                            <span class="text-2xl peer-checked:scale-125 peer-checked:text-emerald-400 transition transform">${icon}</span>
+                                        </label>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <button type="submit" class="w-full bg-[#00995d] hover:bg-[#007a4b] text-white font-extrabold py-4 rounded-2xl shadow-xl transition transform hover:scale-[1.02] text-sm tracking-wider uppercase">
+                                OK, vamos lá!
+                            </button>
+                        </form>
+                    </div>
+                `;
+            } else if (gameState.status === 'lobby') {
+                container.innerHTML = `
+                    <div class="max-w-md mx-auto w-full bg-[#333333] text-white rounded-3xl p-8 shadow-2xl border border-white/10 text-center">
+                        <div class="w-24 h-24 mx-auto mb-4 bg-[#444444] rounded-full flex items-center justify-center text-5xl shadow-inner border border-white/10 animate-bounce">
+                            ${currentPlayer.icon}
+                        </div>
+                        <h2 class="text-2xl font-black text-[#ffeabf]">${currentPlayer.name} ${currentPlayer.surname}</h2>
+                        <p class="text-xs text-slate-300 mt-1">Você está no jogo!</p>
+                        
+                        <div class="mt-8 p-5 bg-[#222222] rounded-2xl border border-white/10 animate-pulse">
+                            <p class="font-bold text-xs text-emerald-400">Vê seu apelido na tela? Ótimo!</p>
+                            <p class="text-[11px] text-slate-400 mt-1">Aguardando o início pelo apresentador...</p>
+                        </div>
+                        <button onclick="logoutPlayer()" class="mt-6 text-xs text-slate-400 hover:text-white underline font-medium">Sair / Trocar Apelido</button>
+                    </div>
+                `;
+            } else if (gameState.status === 'question') {
+                const hasAnswered = currentPlayer.answers && currentPlayer.answers[gameState.currentQuestionIndex] !== undefined;
+                const q = gameState.questions[gameState.currentQuestionIndex];
+                container.innerHTML = `
+                    <div class="max-w-md mx-auto w-full bg-[#333333] text-white rounded-3xl p-6 shadow-2xl border border-white/10 text-center">
+                        <div class="flex justify-between items-center mb-4">
+                            <span class="bg-[#00995d] text-white px-3 py-1 rounded-full text-[10px] font-black uppercase">Questão ${gameState.currentQuestionIndex + 1}</span>
+                            <span class="font-mono font-black text-sm text-[#ffeabf]">${gameState.timer}s</span>
+                        </div>
+                        ${hasAnswered ? `
+                            <div class="py-12 bg-[#222222] rounded-2xl border border-emerald-500/30 animate-pulse">
+                                <span class="text-4xl block mb-2">✅</span>
+                                <p class="font-black text-emerald-400 text-sm">Resposta enviada!</p>
+                                <p class="text-xs text-slate-400 mt-1">Aguardando revelação...</p>
+                            </div>
+                        ` : `
+                            <p class="text-xs text-slate-300 font-semibold mb-4">Toque no botão correspondente à alternativa:</p>
+                            <div class="grid ${q.options.length === 2 ? 'grid-cols-1' : 'grid-cols-2'} gap-4">
+                                ${q.options.map((opt, idx) => {
+                                    const col = answerColors[idx] || { bg: 'bg-[#08484c]', text: 'text-white', border: 'border-black' };
+                                    return `
+                                        <button onclick="submitAnswer(${idx})" class="${col.bg} ${col.text} answer-btn p-5 rounded-2xl font-black text-xl shadow-lg flex items-center justify-center h-24 border-b-4 ${col.border}">
+                                            <span>${idx + 1}. ${opt}</span>
+                                        </button>
+                                    `;
+                                }).join('')}
+                            </div>
+                        `}
+                    </div>
+                `;
+            } else if (gameState.status === 'result') {
+                const q = gameState.questions[gameState.currentQuestionIndex];
+                const playerAns = currentPlayer.answers ? currentPlayer.answers[gameState.currentQuestionIndex] : undefined;
+                const isCorrect = playerAns === q.correct;
+                container.innerHTML = `
+                    <div class="max-w-md mx-auto w-full bg-[#333333] text-white rounded-3xl p-8 shadow-2xl border border-white/10 text-center">
+                        <span class="text-6xl inline-block mb-3">${isCorrect ? '🎉' : '❌'}</span>
+                        <h2 class="text-2xl font-black ${isCorrect ? 'text-emerald-400' : 'text-red-400'}">${isCorrect ? 'Você Acertou!' : 'Você Errou!'}</h2>
+                        <p class="text-xs text-slate-300 mt-2">Veja a pontuação atual na tela principal.</p>
+                        <div class="mt-6 p-4 bg-[#222222] rounded-2xl border border-white/10">
+                            <p class="text-xs font-bold text-slate-300">Total: <span class="text-[#ffeabf] font-mono text-sm">${currentPlayer.score || 0} pts</span></p>
+                        </div>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = `
+                    <div class="max-w-md mx-auto w-full bg-[#333333] text-white rounded-3xl p-8 shadow-2xl border border-white/10 text-center">
+                        <span class="text-5xl inline-block mb-3">🏆</span>
+                        <h2 class="text-2xl font-black text-[#ffeabf]">Fim de Jogo!</h2>
+                        <p class="text-xs text-slate-300 mt-2 mb-4">Pontuação final: <span class="font-bold text-emerald-400">${currentPlayer.score || 0} pts</span></p>
+                        <button onclick="switchRole('player')" class="bg-[#00995d] hover:bg-[#007a4b] text-white font-extrabold px-6 py-3 rounded-2xl text-xs uppercase tracking-wider">Jogar Novamente</button>
+                    </div>
+                `;
+            }
+        }
+
+        // ==================== SIMULATION ====================
+        function renderSim() {
+            document.getElementById('simPlayerCount').innerText = gameState.players.length;
+            const list = document.getElementById('simPlayerList');
+            if (list) {
+                list.innerHTML = gameState.players.map(p => `
+                    <span class="bg-white px-3 py-1.5 rounded-xl shadow-sm text-xs font-bold text-[#08484c] border border-slate-200 flex items-center gap-1.5">
+                        ${p.icon} ${p.name} ${p.surname} (${p.score || 0})
+                    </span>
+                `).join('');
+            }
+        }
+
+        // ==================== ACTIONS & LOGIC ====================
+        function handlePlayerJoin(e) {
+            e.preventDefault();
+            const name = document.getElementById('joinName').value.trim();
+            const surname = document.getElementById('joinSurname').value.trim();
+            const iconEl = document.querySelector('input[name="playerIcon"]:checked');
+            const icon = iconEl ? iconEl.value : '🐼';
+
+            const newPlayer = {
+                id: 'p_' + Math.random().toString(36).substring(2, 9),
+                name,
+                surname,
+                icon,
+                score: 0,
+                answers: {}
+            };
+
+            gameState.players.push(newPlayer);
+            localStorage.setItem('yaki_current_player_id_v4', newPlayer.id);
+            saveState();
+            broadcastState();
+            renderApp();
+        }
+
+        function logoutPlayer() {
+            localStorage.removeItem('yaki_current_player_id_v4');
+            renderApp();
+        }
+
+        function startQuiz() {
+            if (gameState.players.length === 0) {
+                alert('Adicione pelo menos um jogador antes de iniciar.');
+                return;
+            }
+            gameState.status = 'question';
+            gameState.currentQuestionIndex = 0;
+            startTimer();
+            saveState();
+            broadcastState();
+            renderApp();
+        }
+
+        function startTimer() {
+            const q = gameState.questions[gameState.currentQuestionIndex];
+            gameState.timer = q.time || 60;
+            gameState.startTime = Date.now();
+            if (gameState.timerInterval) clearInterval(gameState.timerInterval);
+
+            gameState.timerInterval = setInterval(() => {
+                gameState.timer--;
+                if (gameState.timer <= 0) {
+                    clearInterval(gameState.timerInterval);
+                    revealResult();
+                }
+                saveState();
+                renderApp();
+            }, 1000);
+        }
+
+        function submitAnswer(optionIdx) {
+            let currentPlayerId = localStorage.getItem('yaki_current_player_id_v4');
+            let player = gameState.players.find(p => p.id === currentPlayerId);
+            if (!player) return;
+
+            if (!player.answers) player.answers = {};
+            if (player.answers[gameState.currentQuestionIndex] !== undefined) return;
+
+            player.answers[gameState.currentQuestionIndex] = optionIdx;
+
+            const q = gameState.questions[gameState.currentQuestionIndex];
+            if (optionIdx === q.correct) {
+                const totalTime = q.time || 60;
+                const timeElapsed = (Date.now() - gameState.startTime) / 1000;
+                const speedBonus = Math.max(0, Math.floor((totalTime - timeElapsed) * 10));
+                const points = 500 + speedBonus;
+                player.score = (player.score || 0) + points;
+            }
+
+            saveState();
+            broadcastState();
+            renderApp();
+        }
+
+        function revealResult() {
+            if (gameState.timerInterval) clearInterval(gameState.timerInterval);
+            gameState.status = 'result';
+            saveState();
+            broadcastState();
+            renderApp();
+        }
+
+        function nextStep() {
+            // Regra adaptativa: Nas últimas 5 questões o ranking é oculto, nas primeiras 5 exibe o ranking (ou se o quiz tiver menos de 10 questões, divide ao meio).
+            const totalQ = gameState.questions.length;
+            const threshold = Math.floor(totalQ / 2);
+
+            if (gameState.status === 'result') {
+                if (totalQ >= 6 && gameState.currentQuestionIndex === threshold - 1) {
+                    gameState.status = 'transition_hidden';
+                } else if (gameState.currentQuestionIndex < threshold - 1 || totalQ < 6) {
+                    gameState.status = 'ranking';
+                } else {
+                    advanceToNextQuestionOrPodium();
+                }
+            } else if (gameState.status === 'ranking') {
+                advanceToNextQuestionOrPodium();
+            }
+            saveState();
+            broadcastState();
+            renderApp();
+        }
+
+        function addNewQuestion() {
+            const typeSelect = document.getElementById('newQuestionType');
+            const qType = typeSelect ? typeSelect.value : 'multiple';
+
+            let newQ;
+            if (qType === 'tf') {
+                newQ = {
+                    type: 'tf',
+                    question: "Nova afirmação Verdadeiro ou Falso?",
+                    options: ["Verdadeiro", "Falso"],
+                    correct: 0,
+                    time: 60
+                };
+            } else {
+                newQ = {
+                    type: 'multiple',
+                    question: "Nova pergunta de Múltipla Escolha?",
+                    options: ["Alternativa A", "Alternativa B", "Alternativa C", "Alternativa D"],
+                    correct: 0,
+                    time: 60
+                };
+            }
+
+            gameState.questions.push(newQ);
+            saveState();
+            renderApp();
+        }
+
+        function removeQuestion(idx) {
+            if (gameState.questions.length <= 1) {
+                alert('O quiz precisa ter pelo menos 1 questão.');
+                return;
+            }
+            gameState.questions.splice(idx, 1);
+            saveState();
+            renderApp();
+        }
+
+        function proceedFromTransition() {
+            advanceToNextQuestionOrPodium();
+            saveState();
+            broadcastState();
+            renderApp();
+        }
+
+        function advanceToNextQuestionOrPodium() {
+            gameState.currentQuestionIndex++;
+            if (gameState.currentQuestionIndex < gameState.questions.length) {
+                gameState.status = 'question';
+                startTimer();
+            } else {
+                gameState.status = 'podium';
+                triggerPodiumCelebration();
+            }
+        }
+
+        function skipQuestion() {
+            if (gameState.timerInterval) clearInterval(gameState.timerInterval);
+            advanceToNextQuestionOrPodium();
+            saveState();
+            broadcastState();
+            renderApp();
+        }
+
+        function toggleRankingModal() {
+            const box = document.getElementById('fullRankingBox');
+            if (box) box.classList.toggle('hidden');
+        }
+
+        function triggerPodiumCelebration() {
+            for (let i = 0; i < 40; i++) {
+                const c = document.createElement('div');
+                c.className = 'confetti';
+                c.style.left = Math.random() * 100 + 'vw';
+                c.style.backgroundColor = ['#00995d', '#b0d14b', '#f47920', '#ffeabf'][Math.floor(Math.random() * 4)];
+                c.style.animationDelay = Math.random() * 2 + 's';
+                document.body.appendChild(c);
+                setTimeout(() => c.remove(), 4000);
+            }
+        }
+
+        function resetEntireGame() {
+            if (gameState.timerInterval) clearInterval(gameState.timerInterval);
+            gameState.status = 'lobby';
+            gameState.currentQuestionIndex = 0;
+            gameState.players.forEach(p => { p.score = 0; p.answers = {}; });
+            saveState();
+            broadcastState();
+            renderApp();
+        }
+
+        function addBotPlayer() {
+            if (gameState.players.length >= 40) return;
+            const names = ['Carlos', 'Mariana', 'Pedro', 'Juliana', 'Roberto', 'Camila', 'Lucas', 'Beatriz'];
+            const surnames = ['Silva', 'Santos', 'Oliveira', 'Souza', 'Lima', 'Ferreira'];
+            const name = names[Math.floor(Math.random() * names.length)];
+            const surname = surnames[Math.floor(Math.random() * surnames.length)];
+            const icon = animalIcons[Math.floor(Math.random() * animalIcons.length)];
+
+            gameState.players.push({
+                id: 'bot_' + Math.random().toString(36).substring(2, 9),
+                name: name + ' (Bot)',
+                surname,
+                icon,
+                score: Math.floor(Math.random() * 2000),
+                answers: {}
+            });
+            saveState();
+            broadcastState();
+            renderApp();
+        }
+
+        function addBatchBots(count) {
+            for (let i = 0; i < count; i++) {
+                if (gameState.players.length < 40) addBotPlayer();
+            }
+        }
+
+        function clearAllPlayers() {
+            gameState.players = [];
+            localStorage.removeItem('yaki_current_player_id_v4');
+            saveState();
+            broadcastState();
+            renderApp();
+        }
+
+        function resetDefaultQuestions() {
+            gameState.questions = JSON.parse(JSON.stringify(defaultQuestions));
+            saveState();
+            renderApp();
+        }
+
+        function updateQuestionText(idx, val) {
+            gameState.questions[idx].question = val;
+            saveState();
+        }
+
+        function updateQuestionTime(idx, val) {
+            const t = parseInt(val);
+            gameState.questions[idx].time = isNaN(t) || t < 5 ? 60 : t;
+            saveState();
+        }
+
+        function updateOptionText(qIdx, oIdx, val) {
+            gameState.questions[qIdx].options[oIdx] = val;
+            saveState();
+        }
+
+        function setCorrectOption(qIdx, oIdx) {
+            gameState.questions[qIdx].correct = oIdx;
+            saveState();
+        }
+
+        function broadcastState() {
+            bc.postMessage(gameState);
+        }
+
+        bc.onmessage = (event) => {
+            gameState = event.data;
+            renderApp();
+        };
+
+        window.onload = function() {
+            initFirebase().then(() => {
+                renderApp();
+            });
+        };
+    </script>
+</body>
+</html>
